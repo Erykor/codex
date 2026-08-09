@@ -76,6 +76,67 @@ async fn resumed_initial_messages_render_history() {
 }
 
 #[tokio::test]
+async fn resumed_completed_tools_are_transcript_only() {
+    let (mut chat, mut rx, _ops) = make_chatwidget_manual(/*model_override*/ None).await;
+    let _ = drain_insert_history(&mut rx);
+
+    chat.replay_thread_item(
+        AppServerThreadItem::CommandExecution {
+            id: "command-1".to_string(),
+            command: "tmux capture-pane -p -S -25".to_string(),
+            cwd: chat.config.cwd.clone().into(),
+            process_id: None,
+            plugin_id: None,
+            script_path: None,
+            source: codex_app_server_protocol::CommandExecutionSource::UnifiedExecStartup,
+            status: codex_app_server_protocol::CommandExecutionStatus::Completed,
+            command_actions: Vec::new(),
+            aggregated_output: Some("VITE v7.3.6 ready".to_string()),
+            exit_code: Some(0),
+            duration_ms: Some(12),
+        },
+        "turn-1".to_string(),
+        ReplayKind::ResumeInitialMessages,
+    );
+    chat.replay_thread_item(
+        AppServerThreadItem::ImageView {
+            id: "image-1".to_string(),
+            path: test_path_buf("/tmp/test-failed-1.png").abs().into(),
+        },
+        "turn-1".to_string(),
+        ReplayKind::ResumeInitialMessages,
+    );
+
+    let mut cells = Vec::new();
+    while let Ok(event) = rx.try_recv() {
+        if let AppEvent::InsertHistoryCell(cell) = event {
+            cells.push(cell);
+        }
+    }
+    assert_eq!(cells.len(), 2, "expected one cell per completed tool");
+    assert!(
+        cells
+            .iter()
+            .all(|cell| cell.display_lines(/*width*/ 80).is_empty()),
+        "completed resume tools must not enter the normal display"
+    );
+    assert!(
+        cells.iter().all(|cell| cell.raw_lines().is_empty()),
+        "completed resume tools must not enter raw terminal scrollback"
+    );
+
+    let transcript = cells
+        .iter()
+        .flat_map(|cell| cell.transcript_lines(/*width*/ 80))
+        .map(|line| line.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(transcript.contains("tmux capture-pane -p -S -25"));
+    assert!(transcript.contains("VITE v7.3.6 ready"));
+    assert!(transcript.contains("test-failed-1.png"));
+}
+
+#[tokio::test]
 async fn replayed_failed_turns_preserve_overload_warnings_between_retries() {
     let (mut chat, mut rx, _ops) = make_chatwidget_manual(/*model_override*/ None).await;
     let prompt = "The workspace also looks super confusing with its separator.";

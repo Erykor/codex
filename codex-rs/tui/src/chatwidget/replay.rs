@@ -83,6 +83,15 @@ impl ChatWidget {
         turn_id: String,
         render_source: ThreadItemRenderSource,
     ) {
+        if matches!(
+            render_source,
+            ThreadItemRenderSource::Replay(ReplayKind::ResumeInitialMessages)
+        ) && let Some(cell) = crate::thread_transcript::completed_tool_replay_cell(&item)
+        {
+            self.add_to_history(cell);
+            return;
+        }
+
         let from_replay = render_source.is_replay();
         let replay_kind = render_source.replay_kind();
         match item {

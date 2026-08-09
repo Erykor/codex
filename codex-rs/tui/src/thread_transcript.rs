@@ -292,6 +292,53 @@ fn transcript_only_fallback_cell(item: &ThreadItem) -> Option<TranscriptOnlyHist
     (!lines.is_empty()).then(|| TranscriptOnlyHistoryCell::new(lines))
 }
 
+/// Reconstruct a completed tool item without replaying it into normal scrollback.
+///
+/// The initial resume page is replayed through `ChatWidget`, while older pages
+/// are projected by [`thread_items_to_transcript_cells`]. Both paths must apply
+/// the same presentation rule: completed tool records remain available in the
+/// full transcript, but only conversation content is emitted to the terminal's
+/// normal buffer. In-progress tools are excluded so their live state can still
+/// be restored and updated by subsequent notifications.
+pub(crate) fn completed_tool_replay_cell(item: &ThreadItem) -> Option<TranscriptOnlyHistoryCell> {
+    let is_completed_tool = match item {
+        ThreadItem::CommandExecution { status, .. } => !matches!(
+            status,
+            codex_app_server_protocol::CommandExecutionStatus::InProgress
+        ),
+        ThreadItem::FileChange { status, .. } => !matches!(
+            status,
+            codex_app_server_protocol::PatchApplyStatus::InProgress
+        ),
+        ThreadItem::McpToolCall { status, .. } => !matches!(
+            status,
+            codex_app_server_protocol::McpToolCallStatus::InProgress
+        ),
+        ThreadItem::CollabAgentToolCall { status, .. } => !matches!(
+            status,
+            codex_app_server_protocol::CollabAgentToolCallStatus::InProgress
+        ),
+        ThreadItem::WebSearch(_)
+        | ThreadItem::ImageView { .. }
+        | ThreadItem::ImageGeneration(_)
+        | ThreadItem::DynamicToolCall { .. }
+        | ThreadItem::SubAgentActivity { .. } => true,
+        ThreadItem::UserMessage { .. }
+        | ThreadItem::AgentMessage { .. }
+        | ThreadItem::Plan { .. }
+        | ThreadItem::Reasoning { .. }
+        | ThreadItem::HookPrompt { .. }
+        | ThreadItem::EnteredReviewMode { .. }
+        | ThreadItem::ExitedReviewMode { .. }
+        | ThreadItem::ContextCompaction { .. }
+        | ThreadItem::Sleep(_) => false,
+    };
+
+    is_completed_tool
+        .then(|| transcript_only_fallback_cell(item))
+        .flatten()
+}
+
 #[cfg(test)]
 #[path = "thread_transcript_tests.rs"]
 mod tests;
