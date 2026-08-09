@@ -9,6 +9,7 @@ use crate::history_cell::AgentMarkdownCell;
 use crate::history_cell::HistoryCell;
 use crate::history_cell::PlainHistoryCell;
 use crate::history_cell::ReasoningSummaryCell;
+use crate::history_cell::TranscriptOnlyHistoryCell;
 use crate::history_cell::UserHistoryCell;
 use crate::history_cell::split_reasoning_summary_parts;
 use crate::inline_visualization::InlineVisualizationContext;
@@ -162,7 +163,7 @@ pub(crate) fn thread_items_to_transcript_cells(
                 }
             }
             other => {
-                if let Some(cell) = fallback_transcript_cell(&other) {
+                if let Some(cell) = transcript_only_fallback_cell(&other) {
                     cells.push(Arc::new(cell));
                 }
             }
@@ -171,7 +172,11 @@ pub(crate) fn thread_items_to_transcript_cells(
     cells
 }
 
-fn fallback_transcript_cell(item: &ThreadItem) -> Option<PlainHistoryCell> {
+// These compact fallbacks reconstruct records for the full-transcript overlay.
+// They are intentionally not a second implementation of normal chat replay:
+// paginated callers may retain the cells for Ctrl+T, but must never emit their
+// persisted tool payloads into terminal scrollback.
+fn transcript_only_fallback_cell(item: &ThreadItem) -> Option<TranscriptOnlyHistoryCell> {
     let lines = match item {
         ThreadItem::HookPrompt { fragments, .. } => fragments
             .iter()
@@ -284,5 +289,9 @@ fn fallback_transcript_cell(item: &ThreadItem) -> Option<PlainHistoryCell> {
         | ThreadItem::Reasoning { .. }
         | ThreadItem::Sleep(_) => return None,
     };
-    (!lines.is_empty()).then(|| PlainHistoryCell::new(lines))
+    (!lines.is_empty()).then(|| TranscriptOnlyHistoryCell::new(lines))
 }
+
+#[cfg(test)]
+#[path = "thread_transcript_tests.rs"]
+mod tests;

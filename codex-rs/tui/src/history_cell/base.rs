@@ -23,6 +23,37 @@ impl HistoryCell for PlainHistoryCell {
     }
 }
 
+/// History reconstructed only for the full transcript overlay.
+///
+/// Paginated history can contain persisted tool records that the normal chat
+/// replay intentionally omits. Keeping those records as history cells is
+/// useful for Ctrl+T, but their main-display and raw-scrollback projections
+/// must stay empty so a later scrollback reflow cannot expose them.
+#[derive(Debug)]
+pub(crate) struct TranscriptOnlyHistoryCell {
+    lines: Vec<Line<'static>>,
+}
+
+impl TranscriptOnlyHistoryCell {
+    pub(crate) fn new(lines: Vec<Line<'static>>) -> Self {
+        Self { lines }
+    }
+}
+
+impl HistoryCell for TranscriptOnlyHistoryCell {
+    fn display_lines(&self, _width: u16) -> Vec<Line<'static>> {
+        Vec::new()
+    }
+
+    fn raw_lines(&self) -> Vec<Line<'static>> {
+        Vec::new()
+    }
+
+    fn transcript_lines(&self, _width: u16) -> Vec<Line<'static>> {
+        self.lines.clone()
+    }
+}
+
 #[derive(Debug)]
 pub(crate) struct WebHyperlinkHistoryCell {
     lines: Vec<HyperlinkLine>,
