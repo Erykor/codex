@@ -61,7 +61,11 @@ def activate(package, bin_dir, previous_executable=None):
         require_executable(previous)
         require_executable(previous.with_name("codex-code-mode-host"))
         if previous != candidate:
-            rollback = previous_executable.resolve(strict=True) if previous_executable else previous
+            rollback = (
+                previous_executable.resolve(strict=True)
+                if previous_executable
+                else previous
+            )
             require_executable(rollback)
             require_executable(rollback.with_name("codex-code-mode-host"))
             replace_link(links["codex-stable"], rollback)
@@ -75,7 +79,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("package", type=Path)
     parser.add_argument("--bin-dir", type=Path, default=Path.home() / ".local/bin")
-    parser.add_argument("--previous-executable", type=Path,
-                        help="Explicit known-good rollback when the current version is defective")
+    parser.add_argument(
+        "--previous-executable",
+        type=Path,
+        help="Explicit known-good rollback when the current version is defective",
+    )
     args = parser.parse_args()
     activate(args.package, args.bin_dir, args.previous_executable)
