@@ -26,7 +26,9 @@ WSL 环境快照与人工验收边界。
 ## 更新步骤
 
 只构建本机 `x86_64-unknown-linux-gnu`。不做全平台依赖分析、Windows/macOS 构建、
-全 workspace 测试或 `--all-features`。不为本次更新重构不相关代码或修复无关测试。
+全 TUI 套件、全 workspace 测试或 `--all-features`。只执行显示补丁直接相关测试；
+不为本次更新重构不相关代码，不分析或修复无关测试报错。这条用户明确要求优先于
+上游 AGENTS.md 中运行整个 crate 测试的通用建议。
 
 1. 确认工作区干净，记录当前分支、HEAD、`codex`、`codex-stable` 和 `codex-official`
    的真实路径。未提交内容先保留，不能 reset。运行中的会话不停止、不重启 daemon。
@@ -41,13 +43,15 @@ WSL 环境快照与人工验收边界。
 ```bash
 cd /home/yorkyer/codex/codex-rs
 just fmt
-env -u NO_COLOR TERM=xterm-256color just test -p codex-tui --lib --status-level fail --final-status-level fail
+env -u NO_COLOR TERM=xterm-256color just test -p codex-tui --lib \
+  -E 'test(resumed_completed_tools_are_transcript_only) | test(resumed_initial_messages_render_history) | test(older_tool_projection_matches_initial_replay) | test(replayed_commands_preserve_individual_output_and_failure_status) | test(snapshot_formatter_completed_patch_needs_no_started_notification) | test(live_app_server_file_change_item_started_preserves_changes)' \
+  --status-level fail --final-status-level fail
 python3 ../maintenance/build_linux.py
 ```
 
-只改 TUI 时不扩展到 core/app-server 全套测试。测试失败先辨别是补丁回归还是上游问题；
-若影响恢复显示必须修复，若无关则记录具体测试和原因，不能静默忽略或顺手扩大补丁。
-若改动触及集成路径，追加相关 Linux 集成测试；不要每次重复全平台测试。
+只改 TUI 时不扩展到整个 TUI、core/app-server 套件。上述测试名随上游重命名时，
+只定位对应行为的新测试名，不通过扩大测试范围寻找替代。补丁相关回归必须修复；
+偶然遇到无关错误只记录，不展开处理。成功后不重复运行。
 
 ## 配套 host 与打包
 

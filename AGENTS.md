@@ -4,7 +4,10 @@ For this user's Linux fork updates, read `FORK_MAINTENANCE.md` first. Keep the
 product patch limited to resume display customization. Never reapply the
 mistaken subscription-state commit `5a7af7edef`. Build and verify only the native
 Linux target, including the matching `codex-code-mode-host`; no routine
-cross-platform dependency audit or workspace-wide test run is needed. Keep
+cross-platform dependency audit is needed. The user's explicit local policy
+overrides the broad upstream test guidance below: run only tests directly
+related to the display patch, not the full TUI crate or workspace suite. Do not
+investigate or fix unrelated test failures. Keep
 official and fork symlinks separate and preserve the previous installation as
 `codex-stable` using `maintenance/activate.py`.
 
