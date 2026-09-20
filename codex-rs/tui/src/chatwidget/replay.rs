@@ -245,6 +245,21 @@ impl ChatWidget {
         turn_id: String,
         replay_kind: ReplayKind,
     ) {
+        if matches!(replay_kind, ReplayKind::ResumeInitialMessages) {
+            let cells = crate::thread_transcript::completed_tool_replay_cells(
+                self.thread_id(),
+                &self.config.cwd,
+                &item,
+                Some(&self.config),
+            );
+            if !cells.is_empty() {
+                for cell in cells {
+                    self.add_to_history(cell);
+                }
+                return;
+            }
+        }
+
         match item {
             // Snapshots contain the completed item, without the live start that renders its diff.
             ThreadItem::FileChange {

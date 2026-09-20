@@ -142,20 +142,25 @@ async fn older_tool_projection_matches_initial_replay() {
         })
         .collect::<Vec<_>>();
     for width in [40, 100] {
-        let render =
-            |cell: &dyn HistoryCell| (cell.display_lines(width), cell.transcript_lines(width));
-        assert_eq!(
-            projected
-                .iter()
-                .map(|cell| render(cell.as_ref()))
-                .collect::<Vec<_>>(),
+        assert!(
             replayed
                 .iter()
-                .map(|cell| render(cell.as_ref()))
-                .collect::<Vec<_>>()
+                .all(|cell| cell.display_lines(width).is_empty()),
+            "initial replay tools must remain transcript-only"
         );
+        let projected_lines = projected
+            .iter()
+            .flat_map(|cell| cell.transcript_lines(width))
+            .filter(|line| !line.spans.is_empty())
+            .collect::<Vec<_>>();
+        let replayed_lines = replayed
+            .iter()
+            .flat_map(|cell| cell.transcript_lines(width))
+            .filter(|line| !line.spans.is_empty())
+            .collect::<Vec<_>>();
+        assert_eq!(projected_lines, replayed_lines);
     }
-    let exploration = replayed
+    let exploration = projected
         .iter()
         .find(|cell| {
             cell.as_any()
@@ -282,20 +287,25 @@ async fn snapshot_formatter_completed_patch_needs_no_started_notification() {
         let replayed = take_history_cells(&mut rx);
         assert_eq!((projected.len(), replayed.len()), (1, 1));
         for width in [28, 80] {
+            let expected_display = if matches!(replay_kind, ReplayKind::ResumeInitialMessages) {
+                Vec::new()
+            } else {
+                projected[0].display_hyperlink_lines(width)
+            };
             assert_eq!(
                 (
                     replayed[0].display_hyperlink_lines(width),
                     replayed[0].transcript_hyperlink_lines(width),
                 ),
                 (
-                    projected[0].display_hyperlink_lines(width),
+                    expected_display,
                     projected[0].transcript_hyperlink_lines(width),
                 )
             );
         }
         insta::assert_snapshot!(
             "snapshot_formatter_completed_patch",
-            lines_to_single_string(&replayed[0].display_lines(/*width*/ 80))
+            lines_to_single_string(&replayed[0].transcript_lines(/*width*/ 80))
         );
     }
 }

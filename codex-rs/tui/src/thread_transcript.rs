@@ -12,6 +12,7 @@ use crate::history_cell::HistoryCell;
 use crate::history_cell::PlainHistoryCell;
 use crate::history_cell::PrefixedWrappedHistoryCell;
 use crate::history_cell::ReasoningSummaryCell;
+use crate::history_cell::TranscriptOnlyHistoryCell;
 use crate::history_cell::UserHistoryCell;
 use crate::history_cell::split_reasoning_summary_parts;
 use crate::inline_visualization::InlineVisualizationContext;
@@ -216,6 +217,65 @@ pub(crate) fn thread_items_to_transcript_cells(
     }
     PendingActivity::flush(&mut pending, &mut cells);
     cells
+}
+
+/// Project a completed tool replay into transcript-only cells.
+///
+/// Initial resume replay shares the live rendering path, which normally writes completed tools
+/// into terminal history. Reusing the persisted transcript projection keeps its rich presentation
+/// and activity details while [`TranscriptOnlyHistoryCell`] suppresses the main display.
+pub(crate) fn completed_tool_replay_cells(
+    thread_id: Option<ThreadId>,
+    cwd: &AbsolutePathBuf,
+    item: &ThreadItem,
+    config: Option<&Config>,
+) -> Vec<TranscriptOnlyHistoryCell> {
+    let is_completed_tool = match item {
+        ThreadItem::CommandExecution { status, .. } => !matches!(
+            status,
+            codex_app_server_protocol::CommandExecutionStatus::InProgress
+        ),
+        ThreadItem::FileChange { status, .. } => !matches!(
+            status,
+            codex_app_server_protocol::PatchApplyStatus::InProgress
+        ),
+        ThreadItem::McpToolCall { status, .. } => !matches!(
+            status,
+            codex_app_server_protocol::McpToolCallStatus::InProgress
+        ),
+        ThreadItem::CollabAgentToolCall { status, .. } => !matches!(
+            status,
+            codex_app_server_protocol::CollabAgentToolCallStatus::InProgress
+        ),
+        ThreadItem::WebSearch(_)
+        | ThreadItem::ImageView { .. }
+        | ThreadItem::ImageGeneration(_)
+        | ThreadItem::DynamicToolCall { .. }
+        | ThreadItem::SubAgentActivity { .. } => true,
+        ThreadItem::UserMessage { .. }
+        | ThreadItem::HookPrompt { .. }
+        | ThreadItem::AgentMessage { .. }
+        | ThreadItem::FunctionCallOutput { .. }
+        | ThreadItem::Plan { .. }
+        | ThreadItem::Reasoning { .. }
+        | ThreadItem::Sleep(_)
+        | ThreadItem::EnteredReviewMode { .. }
+        | ThreadItem::ExitedReviewMode { .. }
+        | ThreadItem::ContextCompaction { .. } => false,
+    };
+    if !is_completed_tool {
+        return Vec::new();
+    }
+
+    let visibility = if config.is_some_and(|config| config.show_raw_agent_reasoning) {
+        RawReasoningVisibility::Visible
+    } else {
+        RawReasoningVisibility::Hidden
+    };
+    thread_items_to_transcript_cells(thread_id, cwd, [item.clone()], visibility, config)
+        .into_iter()
+        .map(TranscriptOnlyHistoryCell::new)
+        .collect()
 }
 
 /// Project one item without changing the active widget or its turn lifecycle.

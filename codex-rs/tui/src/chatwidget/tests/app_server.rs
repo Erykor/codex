@@ -1109,9 +1109,18 @@ async fn live_app_server_file_change_item_started_preserves_changes() {
         "turn-1".to_string(),
         ReplayKind::ResumeInitialMessages,
     );
-    let replayed = drain_insert_history(&mut rx);
+    let replayed = std::iter::from_fn(|| rx.try_recv().ok())
+        .filter_map(|event| match event {
+            AppEvent::InsertHistoryCell(cell) => Some(cell),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
     assert_eq!(replayed.len(), 1);
-    assert_eq!(lines_to_single_string(&replayed[0]), transcript);
+    assert!(replayed[0].display_lines(/*width*/ 80).is_empty());
+    assert_eq!(
+        lines_to_single_string(&replayed[0].transcript_lines(/*width*/ 80)),
+        transcript
+    );
     insta::assert_snapshot!(transcript, @"
     • Added foo.txt (+1 -0)
         1 +hello

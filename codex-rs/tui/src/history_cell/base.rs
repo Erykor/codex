@@ -2,6 +2,7 @@
 //! Wrapped prefixes remain display-only while annotated rows retain their logical source.
 
 use super::*;
+use std::sync::Arc;
 
 #[derive(Debug)]
 pub(crate) struct PlainHistoryCell {
@@ -21,6 +22,56 @@ impl HistoryCell for PlainHistoryCell {
 
     fn raw_lines(&self) -> Vec<Line<'static>> {
         plain_lines(self.lines.clone())
+    }
+}
+
+/// A persisted cell that remains available in the transcript without entering terminal history.
+#[derive(Debug)]
+pub(crate) struct TranscriptOnlyHistoryCell {
+    inner: Arc<dyn HistoryCell>,
+}
+
+impl TranscriptOnlyHistoryCell {
+    pub(crate) fn new(inner: Arc<dyn HistoryCell>) -> Self {
+        Self { inner }
+    }
+}
+
+impl HistoryCell for TranscriptOnlyHistoryCell {
+    fn display_lines(&self, _width: u16) -> Vec<Line<'static>> {
+        Vec::new()
+    }
+
+    fn raw_lines(&self) -> Vec<Line<'static>> {
+        Vec::new()
+    }
+
+    fn compact_hyperlink_lines(&self, width: u16) -> Vec<HyperlinkLine> {
+        self.inner.compact_hyperlink_lines(width)
+    }
+
+    fn activity_ids(&self) -> Vec<String> {
+        self.inner.activity_ids()
+    }
+
+    fn expanded_hyperlink_lines(&self, width: u16) -> Vec<HyperlinkLine> {
+        self.inner.expanded_hyperlink_lines(width)
+    }
+
+    fn has_hidden_activity_details(&self, width: u16) -> bool {
+        self.inner.has_hidden_activity_details(width)
+    }
+
+    fn transcript_lines(&self, width: u16) -> Vec<Line<'static>> {
+        self.inner.transcript_lines(width)
+    }
+
+    fn transcript_hyperlink_lines(&self, width: u16) -> Vec<HyperlinkLine> {
+        self.inner.transcript_hyperlink_lines(width)
+    }
+
+    fn has_stable_transcript_height(&self) -> bool {
+        self.inner.has_stable_transcript_height()
     }
 }
 
