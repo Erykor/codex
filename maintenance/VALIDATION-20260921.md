@@ -10,7 +10,7 @@
 ## 自动验证
 
 以下全套结果为用户进一步限定测试范围之前的历史记录，不是未来更新的必做步骤。
-今后只运行 FORK_MAINTENANCE.md 中列出的 6 项补丁相关测试，不重跑完整套件，
+今后只运行 AGENTS.md 中列出的 6 项补丁相关测试，不重跑完整套件，
 也不继续处理下列无关快照问题。本次这些补丁相关测试已经通过，不重复执行。
 
 `env -u NO_COLOR TERM=xterm-256color just test -p codex-tui --lib --status-level fail --final-status-level fail`：
