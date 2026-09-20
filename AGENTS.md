@@ -1,333 +1,128 @@
-# Local fork maintenance
-
-For this user's Linux fork updates, read `FORK_MAINTENANCE.md` first. Keep the
-product patch limited to resume display customization. Never reapply the
-mistaken subscription-state commit `5a7af7edef`. Build and verify only the native
-Linux target, including the matching `codex-code-mode-host`; no routine
-cross-platform dependency audit is needed. The user's explicit local policy
-overrides the broad upstream test guidance below: run only tests directly
-related to the display patch, not the full TUI crate or workspace suite. Do not
-investigate or fix unrelated test failures. Keep
-official and fork symlinks separate and preserve the previous installation as
-`codex-stable` using `maintenance/activate.py`.
-
-# Rust/codex-rs
-
-In the codex-rs folder where the rust code lives:
-
-- Crate names are prefixed with `codex-`. For example, the `core` folder's crate is named `codex-core`
-- When using format! and you can inline variables into {}, always do that.
-- Install any commands the repo relies on (for example `just`, `rg`, or `cargo-insta`) if they aren't already available before running instructions here.
-- Never add or modify any code related to `CODEX_SANDBOX_NETWORK_DISABLED_ENV_VAR` or `CODEX_SANDBOX_ENV_VAR`.
-  - You operate in a sandbox where `CODEX_SANDBOX_NETWORK_DISABLED=1` will be set whenever you use the `shell` tool. Any existing code that uses `CODEX_SANDBOX_NETWORK_DISABLED_ENV_VAR` was authored with this fact in mind. It is often used to early exit out of tests that the author knew you would not be able to run given your sandbox limitations.
-  - Similarly, when you spawn a process using Seatbelt (`/usr/bin/sandbox-exec`), `CODEX_SANDBOX=seatbelt` will be set on the child process. Integration tests that want to run Seatbelt themselves cannot be run under Seatbelt, so checks for `CODEX_SANDBOX=seatbelt` are also often used to early exit out of tests, as appropriate.
-- Always collapse if statements per https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
-- Always inline format! args when possible per https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
-- Use method references over closures when possible per https://rust-lang.github.io/rust-clippy/master/index.html#redundant_closure_for_method_calls
-- Avoid bool or ambiguous `Option` parameters that force callers to write hard-to-read code such as `foo(false)` or `bar(None)`. Prefer enums, named methods, newtypes, or other idiomatic Rust API shapes when they keep the callsite self-documenting.
-- When you cannot make that API change and still need a small positional-literal callsite in Rust, follow the `argument_comment_lint` convention:
-  - Use an exact `/*param_name*/` comment before opaque literal arguments such as `None`, booleans, and numeric literals when passing them by position.
-  - A method's sole non-self argument is exempt when the method and parameter names match, such as `.enabled(false)` for `fn enabled(&self, enabled: bool)`.
-  - Do not add these comments for string or char literals unless the comment adds real clarity; those literals are intentionally exempt from the lint.
-  - The parameter name in the comment must exactly match the callee signature.
-  - You can run `just argument-comment-lint` to run the lint check locally. This is powered by Bazel, so running it the first time can be slow if Bazel is not warmed up, though incremental invocations should take <15s. Most of the time, it is best to update the PR and let CI take responsibility for checking this (or run it asynchronously in the background after submitting the PR). Note CI checks all three platforms, which the local run does not.
-- When possible, make `match` statements exhaustive and avoid wildcard arms.
-- Newly added traits should include doc comments that explain their role and how implementations are expected to use them.
-- Discourage both `#[async_trait]` and `#[allow(async_fn_in_trait)]` in Rust traits.
-  - Prefer native RPITIT trait methods with explicit `Send` bounds on the returned future, as in `3c7f013f9735` / `#16630`.
-  - Preferred trait shape:
-    `fn foo(&self, ...) -> impl std::future::Future<Output = T> + Send;`
-  - Implementations may still use `async fn foo(&self, ...) -> T` when they satisfy that contract.
-  - Do not use `#[allow(async_fn_in_trait)]` as a shortcut around spelling the future contract explicitly.
-- When writing tests, prefer comparing the equality of entire objects over fields one by one.
-- Do not add tests for values that are statically defined.
-- Do not add negative tests for logic that was removed.
-- Do not add general product or user-facing documentation to the `docs/` folder. The official Codex documentation lives elsewhere. The exception is app-server API documentation, which is covered by the app-server guidance below.
-- Prefer private modules and explicitly exported public crate API.
-- If you change `ConfigToml` or nested config types, run `just write-config-schema` to update `codex-rs/core/config.schema.json`.
-- When working with MCP tool calls, prefer using `codex-rs/codex-mcp/src/mcp_connection_manager.rs` to handle mutation of tools and tool calls. Aim to minimize the footprint of changes and leverage existing abstractions rather than plumbing code through multiple levels of function calls.
-- Do not call `reset_client_session` unnecessarily; let the incremental check logic decide whether to reuse the previous request.
-- If you change Rust dependencies (`Cargo.toml` or `Cargo.lock`), run `just bazel-lock-update` from the
-  repo root to refresh `MODULE.bazel.lock`, and include that lockfile update in the same change. CI
-  verifies lockfile drift.
-- Bazel does not automatically make source-tree files available to compile-time Rust file access. If
-  you add `include_str!`, `include_bytes!`, `sqlx::migrate!`, or similar build-time file or
-  directory reads, update the crate's `BUILD.bazel` (`compile_data`, `build_script_data`, or test
-  data) or Bazel may fail even when Cargo passes.
-- Do not create small helper methods that are referenced only once.
-- For tracing async work, instrument the function or method definition with
-  `#[tracing::instrument(...)]` instead of attaching spans to futures with
-  `.instrument(...)` at call sites. Before adding instrumentation, check whether the callee—or
-  the implementation method it immediately delegates to—is already instrumented.
-- Avoid large modules:
-  - Prefer adding new modules instead of growing existing ones.
-  - Target Rust modules under 500 LoC, excluding tests.
-  - If a file exceeds roughly 800 LoC, add new functionality in a new module instead of extending
-    the existing file unless there is a strong documented reason not to.
-  - This rule applies especially to high-touch files that already attract unrelated changes, such
-    as `codex-rs/tui/src/app.rs`, `codex-rs/tui/src/bottom_pane/chat_composer.rs`,
-    `codex-rs/tui/src/bottom_pane/footer.rs`, `codex-rs/tui/src/chatwidget.rs`,
-    `codex-rs/tui/src/bottom_pane/mod.rs`, and similarly central orchestration modules.
-  - When extracting code from a large module, move the related tests and module/type docs toward
-    the new implementation so the invariants stay close to the code that owns them.
-  - Avoid adding new standalone methods to `codex-rs/tui/src/chatwidget.rs` unless the change is
-    trivial; prefer new modules/files and keep `chatwidget.rs` focused on orchestration.
-- When running Rust commands (e.g. `just fix` or `just test`) be patient with the command and never try to kill them using the PID. Rust lock can make the execution slow, this is expected.
-
-Run `just fmt` (in the `codex-rs` directory) automatically after you have finished making code changes anywhere in this repository; do not ask for approval to run it. Additionally, run the tests:
-
-1. Do not run `cargo test` directly. Use `just test` so test execution follows the repo defaults.
-2. Run the test for the specific project that was changed. For example, if changes were made in `codex-rs/tui`, run `just test -p codex-tui`.
-3. Once those pass, if any changes were made in common, core, or protocol, run the complete test suite with `just test`. Avoid `--all-features` for routine local runs because it expands the build matrix and can significantly increase `target/` disk usage; use it only when you specifically need full feature coverage. project-specific or individual tests can be run without asking the user, but do ask the user before running the complete test suite.
-
-Before finalizing a large change to `codex-rs`, run `just fix -p <project>` (in `codex-rs` directory) to fix any linter issues in the code. Prefer scoping with `-p` to avoid slow workspace‑wide Clippy builds; only run `just fix` without `-p` if you changed shared crates. Do not re-run tests after running `fix` or `fmt`.
-
-## The `codex-core` crate
-
-Over time, the `codex-core` crate (defined in `codex-rs/core/`) has become bloated because it is the largest crate, so it is often easier to add something new to `codex-core` rather than refactor out the library code you need so your new code neither takes a dependency on, nor contributes to the size of, `codex-core`.
-
-To that end: **resist adding code to codex-core**!
-
-Particularly when introducing a new concept/feature/API, before adding to `codex-core`, consider whether:
-
-- There is an existing crate other than `codex-core` that is an appropriate place for your new code to live.
-- It is time to introduce a new crate to the Cargo workspace for your new functionality. Refactor existing code as necessary to make this happen.
-
-Likewise, when reviewing code, do not hesitate to push back on PRs that would unnecessarily add code to `codex-core`.
-
-## Code Review Rules
-
-### Crate API surface
-
-Keep crate API surfaces as small as possible. Avoid proliferating test-only helpers.
-
-### Model visible context
-
-Codex maintains a context (history of messages) that is sent to the model in inference requests.
-
-1. No history rewrite - the context must be built up incrementally.
-2. Avoid frequent changes to context that cause cache misses.
-3. No unbounded items - everything injected in the model context must have a bounded size and a hard cap.
-4. No items larger than 10K tokens.
-5. Highlight new individual items that can cross >1k tokens as P0. These need an additional manual review.
-6. All injected fragments must be defined as structs in `core/context` and implement ContextualUserFragment trait
-
-### Breaking changes
-
-Search for breaking changes in external integration surfaces:
-
-- app-server APIs
-- raw response item events (`rawResponseItem/*`), even while experimental
-- CLI parameters
-- configuration loading
-- resuming sessions from existing rollouts
-
-### Test authoring guidance
-
-For agent changes prefer integration tests over unit tests. Integration tests are under `core/suite` and use `test_codex` to set up a test instance of codex.
-
-Features that change the agent logic MUST add an integration test:
-
-- Provide a list of major logic changes and user-facing behaviors that need to be tested.
-
-If unit tests are needed, put them in a dedicated test file (\*\_tests.rs).
-Avoid test-only functions in the main implementation.
-
-Check whether there are existing helpers to make tests more streamlined and readable.
-
-### Change size guidance (800 lines)
-
-Unless the change is mechanical the total number of changed lines should not exceed 800 lines.
-For complex logic changes the size should be under 500 lines.
-
-If the change is larger, explore whether it can be split into reviewable stages and identify the smallest coherent stage to land first.
-Base the staging suggestion on the actual diff, dependencies, and affected call sites.
-
-## TUI style conventions
-
-See `codex-rs/tui/styles.md`.
-
-## TUI code conventions
-
-- Use concise styling helpers from ratatui’s Stylize trait.
-  - Basic spans: use "text".into()
-  - Styled spans: use "text".red(), "text".green(), "text".magenta(), "text".dim(), etc.
-  - Prefer these over constructing styles with `Span::styled` and `Style` directly.
-  - Example: patch summary file lines
-    - Desired: vec!["  └ ".into(), "M".red(), " ".dim(), "tui/src/app.rs".dim()]
-
-### TUI Styling (ratatui)
-
-- Prefer Stylize helpers: use "text".dim(), .bold(), .cyan(), .italic(), .underlined() instead of manual Style where possible.
-- Prefer simple conversions: use "text".into() for spans and vec![…].into() for lines; when inference is ambiguous (e.g., Paragraph::new/Cell::from), use Line::from(spans) or Span::from(text).
-- Computed styles: if the Style is computed at runtime, using `Span::styled` is OK (`Span::from(text).set_style(style)` is also acceptable).
-- Avoid hardcoded white: do not use `.white()`; prefer the default foreground (no color).
-- Chaining: combine helpers by chaining for readability (e.g., url.cyan().underlined()).
-- Single items: prefer "text".into(); use Line::from(text) or Span::from(text) only when the target type isn’t obvious from context, or when using .into() would require extra type annotations.
-- Building lines: use vec![…].into() to construct a Line when the target type is obvious and no extra type annotations are needed; otherwise use Line::from(vec![…]).
-- Avoid churn: don’t refactor between equivalent forms (Span::styled ↔ set_style, Line::from ↔ .into()) without a clear readability or functional gain; follow file‑local conventions and do not introduce type annotations solely to satisfy .into().
-- Compactness: prefer the form that stays on one line after rustfmt; if only one of Line::from(vec![…]) or vec![…].into() avoids wrapping, choose that. If both wrap, pick the one with fewer wrapped lines.
-
-### Text wrapping
-
-- Always use textwrap::wrap to wrap plain strings.
-- If you have a ratatui Line and you want to wrap it, use the helpers in tui/src/wrapping.rs, e.g. word_wrap_lines / word_wrap_line.
-- If you need to indent wrapped lines, use the initial_indent / subsequent_indent options from RtOptions if you can, rather than writing custom logic.
-- If you have a list of lines and you need to prefix them all with some prefix (optionally different on the first vs subsequent lines), use the `prefix_lines` helper from line_utils.
-
-## Tests
-
-### Test module organization
-
-- When adding a new test module, define its contents in a separate sibling file rather than inline in the implementation file.
-- Use an explicit `#[path = "..._tests.rs"]` attribute so the test filename is descriptive and easy to locate:
-
-  ```rust
-  #[cfg(test)]
-  #[path = "parser_tests.rs"]
-  mod tests;
-  ```
-
-- This applies only when introducing a new test module. Do not move or rewrite existing inline `#[cfg(test)] mod tests { ... }` modules solely to follow this convention.
-
-### Snapshot tests
-
-This repo uses snapshot tests (via `insta`), especially in `codex-rs/tui`, to validate rendered output.
-
-**Requirement:** any change that affects user-visible UI (including adding new UI) must include
-corresponding `insta` snapshot coverage (add a new snapshot test if one doesn't exist yet, or
-update the existing snapshot). Review and accept snapshot updates as part of the PR so UI impact
-is easy to review and future diffs stay visual.
-
-When UI or text output changes intentionally, update the snapshots as follows:
-
-- Run tests to generate any updated snapshots:
-  - `just test -p codex-tui`
-- Check what’s pending:
-  - `cargo insta pending-snapshots -p codex-tui`
-- Review changes by reading the generated `*.snap.new` files directly in the repo, or preview a specific file:
-  - `cargo insta show -p codex-tui path/to/file.snap.new`
-- Only if you intend to accept all new snapshots in this crate, run:
-  - `cargo insta accept -p codex-tui`
-
-If you don’t have the tool:
-
-- `cargo install --locked cargo-insta`
-
-### Benchmarks
-
-cargo benchmarks can be run with `just bench`, use the divan crate to write new ones.
-
-Use `just bench-smoke` to dry-run the benchmark for a single iteration to ensure it works.
-
-### Test assertions
-
-- Tests should use pretty_assertions::assert_eq for clearer diffs. Import this at the top of the test module if it isn't already.
-- Prefer deep equals comparisons whenever possible. Perform `assert_eq!()` on entire objects, rather than individual fields.
-- Avoid mutating process environment in tests; prefer passing environment-derived flags or dependencies from above.
-
-### Spawning workspace binaries in tests (Cargo vs Bazel)
-
-- Prefer `codex_utils_cargo_bin::cargo_bin("...")` over `assert_cmd::Command::cargo_bin(...)` or `escargot` when tests need to spawn first-party binaries.
-  - Under Bazel, binaries and resources may live under runfiles; use `codex_utils_cargo_bin::cargo_bin` to resolve absolute paths that remain stable after `chdir`.
-- When locating fixture files or test resources under Bazel, avoid `env!("CARGO_MANIFEST_DIR")`. Prefer `codex_utils_cargo_bin::find_resource!` so paths resolve correctly under both Cargo and Bazel runfiles.
-
-### Integration tests
-
-#### codex_core integration testing
-
-- Prefer the utilities in `core_test_support::responses` when writing end-to-end Codex tests.
-- Use `TestCodexBuilder::build_with_auto_env()` by default to ensure that new tests work with
-  foreign app/exec OSes. See $remote-tests for details.
-- All `mount_sse*` helpers return a `ResponseMock`; hold onto it so you can assert against outbound `/responses` POST bodies.
-- Use `ResponseMock::single_request()` when a test should only issue one POST, or `ResponseMock::requests()` to inspect every captured `ResponsesRequest`.
-- `ResponsesRequest` exposes helpers (`body_json`, `input`, `function_call_output`, `custom_tool_call_output`, `call_output`, `header`, `path`, `query_param`) so assertions can target structured payloads instead of manual JSON digging.
-- Build SSE payloads with the provided `ev_*` constructors and the `sse(...)`.
-- Prefer `wait_for_event` over `wait_for_event_with_timeout`.
-- Prefer `mount_sse_once` over `mount_sse_once_match` or `mount_sse_sequence`
-
-- Typical pattern:
-
-  ```rust
-  let mock = responses::mount_sse_once(&server, responses::sse(vec![
-      responses::ev_response_created("resp-1"),
-      responses::ev_function_call(call_id, "shell", &serde_json::to_string(&args)?),
-      responses::ev_completed("resp-1"),
-  ])).await;
-
-  codex.submit(Op::UserTurn { ... }).await?;
-
-  // Assert request body if needed.
-  let request = mock.single_request();
-  // assert using request.function_call_output(call_id) or request.json_body() or other helpers.
-  ```
-
-#### app-server integration testing
-
-- Tests should exercise app-server's public JSON-RPC API.
-- Use similar server mocking as for core integration tests.
-- Use `TestAppServer::builder().build()` and `TestAppServer::send_thread_start_request_with_auto_env()`
-  by default to ensure that new tests work with foreign app/exec OSes. See `$remote-tests` for
-  details.
-
-## App-server API Development Best Practices
-
-These guidelines apply to app-server protocol work in `codex-rs`, especially:
-
-- `app-server-protocol/src/protocol/common.rs`
-- `app-server-protocol/src/protocol/v2.rs`
-
-### Core Rules
-
-- All active API development should happen in app-server v2. Do not add new API surface area to v1.
-- Follow payload naming consistently:
-  `*Params` for request payloads, `*Response` for responses, and `*Notification` for notifications.
-- Expose RPC methods as `<resource>/<method>` and keep `<resource>` singular (for example, `thread/read`, `app/list`).
-- Always expose fields as camelCase on the wire with `#[serde(rename_all = "camelCase")]` unless a tagged union or explicit compatibility requirement needs a targeted rename.
-- Always expose string enum values as camelCase on the wire with matching serde and TS `rename_all = "camelCase"` annotations unless an explicit compatibility requirement needs targeted renames.
-- Exception: config RPC payloads are expected to use snake_case to mirror config.toml keys (see the config read/write/list APIs in `app-server-protocol/src/protocol/v2.rs`).
-- Always set `#[ts(export_to = "v2/")]` on v2 request/response/notification types so generated TypeScript lands in the correct namespace.
-- Never use `#[serde(skip_serializing_if = "Option::is_none")]` for v2 API payload fields.
-  Exception: client->server requests that intentionally have no params may use:
-  `params: #[ts(type = "undefined")] #[serde(skip_serializing_if = "Option::is_none")] Option<()>`.
-- Keep Rust and TS wire renames aligned. If a field or variant uses `#[serde(rename = "...")]`, add matching `#[ts(rename = "...")]`.
-- For discriminated unions, use explicit tagging in both serializers:
-  `#[serde(tag = "type", ...)]` and `#[ts(tag = "type", ...)]`.
-- Prefer plain `String` IDs at the API boundary (do UUID parsing/conversion internally if needed).
-- Timestamps should be integer Unix seconds (`i64`) and named `*_at` (for example, `created_at`, `updated_at`, `resets_at`).
-- For experimental API surface area:
-  use `#[experimental("method/or/field")]`, derive `ExperimentalApi` when field-level gating is needed, and use `inspect_params: true` in `common.rs` when only some fields of a method are experimental.
-
-### Client->server request payloads (`*Params`)
-
-- Every optional field must be annotated with `#[ts(optional = nullable)]`. Do not use `#[ts(optional = nullable)]` outside client->server request payloads (`*Params`).
-- Optional collection fields (for example `Vec`, `HashMap`) must use `Option<...>` + `#[ts(optional = nullable)]`. Do not use `#[serde(default)]` to model optional collections, and do not use `skip_serializing_if` on v2 payload fields.
-- When you want omission to mean `false` for boolean fields, use `#[serde(default, skip_serializing_if = "std::ops::Not::not")] pub field: bool` over `Option<bool>`.
-- For new list methods, implement cursor pagination by default:
-  request fields `pub cursor: Option<String>` and `pub limit: Option<u32>`,
-  response fields `pub data: Vec<...>` and `pub next_cursor: Option<String>`.
-
-### Development Workflow
-
-- Regenerate schema fixtures when API shapes change:
-  `just write-app-server-schema`
-  (and `just write-app-server-schema --experimental` when experimental API fixtures are affected).
-- Validate with `just test -p codex-app-server-protocol`.
-- Avoid boilerplate tests that only assert experimental field markers for individual
-  request fields in `common.rs`; rely on schema generation/tests and behavioral coverage instead.
-
-## Python Development Best Practices
-
-### Ignore Python 2 compatibility
-
-This project uses Python 3+. You should not use the `__future__` module.
-
-If you need to worry about feature compatibility between different 3.xx point releases, check the
-closest `pyproject.toml`'s `requires-python` field to see what minimum runtime version is supported.
-
-## Platform Support
-
-Tests and features must support Linux, macOS and Windows unless feature is explicitly OS-specific.
-
-Codex supports running connected app-server and exec-server on different operating systems. See the
-`$remote-tests` skill for details about integration testing these configurations.
+# AGENTS.md — 本机 Linux Codex fork 维护
+
+## 维护边界
+
+这是 IceSpark 内使用的显示定制，不是通用 Codex 发行版。只维护恢复会话时已完成工具
+不进入普通显示/raw scrollback、详情仍可查询的行为。实时工具、模型上下文、认证、
+订阅与计费遵循上游。不要在 IceSpark 中解析并过滤 Codex 的终端文本。
+
+2026-09-21 的干净基线：官方 `upstream/main` 的
+`2426ed7684c87f9a627c60b54271cfed77c979df`。
+分支：`fork/minimal-20260921`。
+本次验证结果见 [迁移记录](maintenance/VALIDATION-20260921.md)，其中明确列出未通过的
+WSL 环境快照与人工验收边界。
+
+| 补丁 | 处理 |
+| --- | --- |
+| `201dedbfad`，来源 `ee481ffae9` | 唯一必需产品补丁：恢复后的已完成工具仅保留在 transcript；适配新上游的文件修改回放测试 |
+| `5a7af7edef` 订阅状态修复 | 错项目需求，明确废弃，禁止再次 cherry-pick |
+| 本文与 `maintenance/` | 本地维护流程，独立于产品补丁 |
+
+旧分支只作为历史档案；升级从官方 main 建新分支，不合并旧 fork 分支。
+补丁目前修改 replay、history cell、transcript projection 及对应测试。
+全屏 transcript 的 compact/detail 仍遵循上游，不能把 `fullscreen_transcript=false`
+理解为“隐藏所有工具”。旧历史分页、resize 后重绘也必须在验收时检查。
+
+## 更新步骤
+
+只构建本机 `x86_64-unknown-linux-gnu`。不做全平台依赖分析、Windows/macOS 构建、
+全 TUI 套件、全 workspace 测试或 `--all-features`。只执行显示补丁直接相关测试；
+不为本次更新重构不相关代码，不分析或修复无关测试报错。本文是本 fork 唯一的维护
+说明；从上游更新时保留这份精简 AGENTS.md，不重新引入上游通用开发规范。
+
+1. 确认工作区干净，记录当前分支、HEAD、`codex`、`codex-stable` 和 `codex-official`
+   的真实路径。未提交内容先保留，不能 reset。运行中的会话不停止、不重启 daemon。
+2. `git fetch --no-tags upstream main`，记录确切 SHA。创建新的 `fork/minimal-日期`
+   分支，起点为 `upstream/main`，仅 cherry-pick 上次的显示补丁提交。
+   再携带维护文件的独立提交。不要按整个旧分支范围盲目 cherry-pick。
+3. 查看 `git diff upstream/main`：产品差异只能涉及显示定制和必要测试。
+   遇到冲突只适配补丁涉及的接口；检查是否已有等价上游行为，等价时删除补丁。
+4. 在 `codex-rs/` 运行下面的验证和本机构建。首次会较慢，复用原有 target 缓存，
+   不执行 cargo clean。不另建一套 target/profile 重复编译。
+
+```bash
+cd /home/yorkyer/codex/codex-rs
+just fmt
+env -u NO_COLOR TERM=xterm-256color just test -p codex-tui --lib \
+  -E 'test(resumed_completed_tools_are_transcript_only) | test(resumed_initial_messages_render_history) | test(older_tool_projection_matches_initial_replay) | test(replayed_commands_preserve_individual_output_and_failure_status) | test(snapshot_formatter_completed_patch_needs_no_started_notification) | test(live_app_server_file_change_item_started_preserves_changes)' \
+  --status-level fail --final-status-level fail
+python3 ../maintenance/build_linux.py
+```
+
+只改 TUI 时不扩展到整个 TUI、core/app-server 套件。上述测试名随上游重命名时，
+只定位对应行为的新测试名，不通过扩大测试范围寻找替代。补丁相关回归必须修复；
+偶然遇到无关错误只记录，不展开处理。成功后不重复运行。
+
+## 配套 host 与打包
+
+必须同时编译并安装同一源码版本的 `codex` 与 `codex-code-mode-host`（准确名称不是
+`codex-code-host`）。只复制 CLI 会导致 code mode 运行失败。host 必须位于 CLI 旁边，
+不能依赖 PATH 中另一个版本的 host，也不能从旧安装中借用。
+
+复用上游打包器，带上 Linux 的 bwrap、rg、patched zsh 和包清单。
+下面使用已经构建的 native release 文件，打包阶段不会再次编译 CLI/host。
+不要用 `--force` 覆盖旧版本目录。
+
+```bash
+cd /home/yorkyer/codex
+fork_revision=$(git rev-parse HEAD)
+fork_package="/home/yorkyer/.local/lib/codex-forks/$fork_revision"
+just assemble-codex-package \
+  --target x86_64-unknown-linux-gnu \
+  --package-dir "$fork_package" \
+  --entrypoint-bin "$PWD/codex-rs/target/release/codex" \
+  --code-mode-host-bin "$PWD/codex-rs/target/release/codex-code-mode-host" \
+  --bwrap-bin "$PWD/codex-rs/target/release/bwrap"
+"$fork_package/bin/codex" --version
+"$fork_package/bin/codex-code-mode-host" --help
+python3 maintenance/activate.py "$fork_package"
+```
+
+源码构建可能报告 `0.0.0`，以提交 SHA 和不可变安装目录识别版本，不为美化版本号修改
+整个 workspace。`build_linux.py` 复用上游 `scripts/codex_package/v8.py` 获取并校验
+当前 Linux 的配套 archive/bindings，然后执行 native Cargo release 构建。
+不要直接裸跑 cargo build：当前 V8 版本的默认 denoland 下载地址会 404，应使用上游
+Codex 发布的 artifact。不要自行研究其他平台、源码编译 V8 或混用绑定与静态库。
+
+## 符号链接约定
+
+- `~/.local/bin/codex`：当前 fork，不指向官方 standalone/current。
+- `~/.local/bin/codex-fork`：当前 fork 的别名，与 codex 相同。
+- `~/.local/bin/codex-stable`：上次切换前的版本，固定到该版本的真实路径。
+- `~/.local/bin/codex-official`：官方 standalone/current/bin/codex，独立保留。
+
+`maintenance/activate.py` 在修改链接前检查完整候选包、CLI/host 可启动、现有链接，
+用临时 symlink + replace 切换。先保存旧版到 stable，最后更新 codex；重复激活同一版
+不覆盖 stable。不会删除旧包、修改官方 current、重启服务或停止已有会话。
+多个链接不是一个整体事务；若中断，重复激活同一候选即可完成切换。
+
+```bash
+# 查看实际版本，而不是仅看命令名字
+readlink -f /home/yorkyer/.local/bin/codex
+readlink -f /home/yorkyer/.local/bin/codex-stable
+readlink -f /home/yorkyer/.local/bin/codex-official
+
+# 紧急回退：保留 stable，不旋转；新开会话生效
+fork_previous=$(readlink -e /home/yorkyer/.local/bin/codex-stable)
+test -x "$fork_previous"
+test -x "$(dirname "$fork_previous")/codex-code-mode-host"
+ln -sfnT "$fork_previous" /home/yorkyer/.local/bin/codex-fork
+ln -sfnT "$fork_previous" /home/yorkyer/.local/bin/codex
+```
+
+官方安装器可能重写 `~/.local/bin/codex`；更新官方版后务必检查上述链接，再激活 fork。
+本次迁移排除含错误订阅补丁的 `5a7af7edef`，用 `--previous-executable` 指定上一个
+完整且不含此补丁的安装：
+`/home/yorkyer/.local/lib/codex-forks/4aa6037a3a542f09b1d36504745f8da510542611/bin/codex`。
+这是一次性例外；之后正常更新不传这个参数，自动保留上一版。历史档案中的错误构建
+不作为 stable，也不再作为更新的起点。
+
+## 安装后验收与交付
+
+新开 IceSpark 会话：恢复包含命令、图片和长历史的会话，检查初始画面、向上翻页、
+resize/重新打开终端；普通显示不应泄漏已完成工具详情，详细 transcript 仍可查询。
+发送一次小任务，确认 code mode 调用 host 正常、实时工具和最终回答正常。
+这一步会使用真实会话/credit，不能把 `--version` 冒充完整端到端验收。
+
+记录上游 SHA、显示补丁 SHA、测试结果、安装目录、三个命令的真实目标，以及未完成的
+人工验收。本地流程测试：`python3 -m unittest discover -s maintenance -p 'test_*.py'`。
