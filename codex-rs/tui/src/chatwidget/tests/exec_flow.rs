@@ -415,8 +415,8 @@ failure
 ✗ (7) • 5ms
 
 $ printf declined
-declined
-✗ (1) • 5ms
+Declined
+  declined
 ");
 }
 
