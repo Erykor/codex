@@ -1,3 +1,13 @@
+# Local fork maintenance
+
+For this user's Linux fork updates, read `FORK_MAINTENANCE.md` first. Keep the
+product patch limited to resume display customization. Never reapply the
+mistaken subscription-state commit `5a7af7edef`. Build and verify only the native
+Linux target, including the matching `codex-code-mode-host`; no routine
+cross-platform dependency audit or workspace-wide test run is needed. Keep
+official and fork symlinks separate and preserve the previous installation as
+`codex-stable` using `maintenance/activate.py`.
+
 # Rust/codex-rs
 
 In the codex-rs folder where the rust code lives:
