@@ -34,7 +34,19 @@
 链接激活脚本的 4 项测试通过：版本轮换、重复激活保留 stable、缺少 host 时拒绝、
 保护普通文件、显式排除错误旧版本（版本轮换测试同时覆盖重复激活与官方链接保留）。
 
-## 验收边界
+## 安装结果
+
+Linux release 构建成功，CLI、`codex-code-mode-host`、bwrap 来自同一次构建。
+上游打包器校验通过，host 的 `--help` 与 CLI 的 `--version` 启动检查通过。
+安装目录：
+`/home/yorkyer/.local/lib/codex-forks/e88e63d915cc4a059fbd4deb7b9a337df504f2ef`。
+
+- `codex`、`codex-fork` → 上述目录的 `bin/codex`（源码构建报告 `0.0.0`）。
+- `codex-stable` → `4aa6037a3a542f09b1d36504745f8da510542611/bin/codex`，
+  位于相同 codex-forks 根目录；刻意排除含误改的 `5a7af7edef`。
+- `codex-official` → 官方 standalone/current，验证为 `0.155.1`。
+
+## 人工验收边界
 
 未对生产 IceSpark 会话执行交互式验收，未调用真实模型，也未停止已有进程。
 新开终端后的 resume、旧历史分页、resize、详细 transcript 和 code mode 调用仍需要
