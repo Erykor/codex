@@ -8,7 +8,8 @@
 
 2026-09-21 的干净基线：官方 `upstream/main` 的
 `2426ed7684c87f9a627c60b54271cfed77c979df`。
-分支：`fork/minimal-20260921`。
+固定维护分支：`main`，对应 `origin/main`（`Erykor/codex` 的默认分支）。
+官方源始终使用 `upstream/main`；不得向官方仓库推送。
 本次验证结果见 [迁移记录](maintenance/VALIDATION-20260921.md)，其中明确列出未通过的
 WSL 环境快照与人工验收边界。
 
@@ -18,7 +19,10 @@ WSL 环境快照与人工验收边界。
 | `5a7af7edef` 订阅状态修复 | 错项目需求，明确废弃，禁止再次 cherry-pick |
 | 本文与 `maintenance/` | 本地维护流程，独立于产品补丁 |
 
-旧分支只作为历史档案；升级从官方 main 建新分支，不合并旧 fork 分支。
+只维护和发布 fork 的 `main`，不再创建 `icespark` 或按日期/版本命名的长期分支。
+`upstream/main` 是官方代码，`origin/main` 是官方代码加最小显示补丁及维护说明。
+旧维护分支已清理，历史提交保留在本地 `refs/archive/pre-main-20260921/`，需要时可恢复。
+升级在本地 `main` 上 rebase 到 `upstream/main`，不合并旧 fork 分支。
 补丁目前修改 replay、history cell、transcript projection 及对应测试。
 全屏 transcript 的 compact/detail 仍遵循上游，不能把 `fullscreen_transcript=false`
 理解为“隐藏所有工具”。旧历史分页、resize 后重绘也必须在验收时检查。
@@ -32,13 +36,19 @@ WSL 环境快照与人工验收边界。
 
 1. 确认工作区干净，记录当前分支、HEAD、`codex`、`codex-stable` 和 `codex-official`
    的真实路径。未提交内容先保留，不能 reset。运行中的会话不停止、不重启 daemon。
-2. `git fetch --no-tags upstream main`，记录确切 SHA。创建新的 `fork/minimal-日期`
-   分支，起点为 `upstream/main`，仅 cherry-pick 上次的显示补丁提交。
-   再携带维护文件的独立提交。不要按整个旧分支范围盲目 cherry-pick。
+2. `git switch main`，fetch `origin/main` 和 `upstream/main`，记录两端确切 SHA。
+   先确认本地包含远端已有改动，再在 `main` 上 rebase 到 `upstream/main`；
+   仅保留显示补丁及维护文件，不带入已废弃提交。若需要重建提交，先用本地 archive ref
+   保存旧 HEAD，再在临时 detached worktree 中基于官方 main 重放必要提交，完成后更新
+   `main`，不留下新的长期分支。
 3. 查看 `git diff upstream/main`：产品差异只能涉及显示定制和必要测试。
    遇到冲突只适配补丁涉及的接口；检查是否已有等价上游行为，等价时删除补丁。
 4. 在 `codex-rs/` 运行下面的验证和本机构建。首次会较慢，复用原有 target 缓存，
    不执行 cargo clean。不另建一套 target/profile 重复编译。
+5. 完成后提交并推送 `origin/main`。普通提交使用普通 push；rebase 重写历史时，
+   仅对 fork 的 `main` 使用绑定步骤 2 所记录远端 SHA 的
+   `--force-with-lease=refs/heads/main:<已记录的远端SHA>`，禁止无保护 force push。
+   若远端已改变，先检查并纳入他人改动，不能刷新 lease 后直接覆盖。
 
 ```bash
 cd /home/yorkyer/codex/codex-rs
