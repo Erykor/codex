@@ -69,7 +69,8 @@ python3 ../maintenance/build_linux.py
 `codex-code-host`）。只复制 CLI 会导致 code mode 运行失败。host 必须位于 CLI 旁边，
 不能依赖 PATH 中另一个版本的 host，也不能从旧安装中借用。
 
-复用上游打包器，带上 Linux 的 bwrap、rg、patched zsh 和包清单。
+复用上游打包器，带上 Linux 的 bwrap、rg 和包清单。上游 `a645742bb5` 已停止
+打包 patched zsh，运行时也已移除该后端；不再要求或补装旧 zsh。
 下面使用已经构建的 native release 文件，打包阶段不会再次编译 CLI/host。
 不要用 `--force` 覆盖旧版本目录。
 

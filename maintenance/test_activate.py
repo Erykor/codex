@@ -26,7 +26,6 @@ class ActivationTests(unittest.TestCase):
             "bin/codex-code-mode-host",
             "codex-path/rg",
             "codex-resources/bwrap",
-            "codex-resources/zsh/bin/zsh",
         ):
             path = package / relative
             path.parent.mkdir(parents=True, exist_ok=True)

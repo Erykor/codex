@@ -37,7 +37,6 @@ def activate(package, bin_dir, previous_executable=None):
         "bin/codex-code-mode-host",
         "codex-path/rg",
         "codex-resources/bwrap",
-        "codex-resources/zsh/bin/zsh",
     ):
         require_executable(package / relative)
     candidate = package / "bin/codex"
